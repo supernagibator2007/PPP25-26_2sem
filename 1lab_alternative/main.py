@@ -1,12 +1,19 @@
 import requests
 import sqlite3
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from datetime import datetime
+from posts_class import Post, Base
 
 
 URL_1 = 'https://jsonplaceholder.typicode.com/posts'
 URL_2 = 'https://jsonplaceholder.typicode.com/users'
 DATA_BASE = 'posts.db'
 DATE_FORMAT = '%Y/%m/%d %H:%M:%S'
+BASE_TYPE = 'sqlite://'
+
+engine = create_engine(f'{BASE_TYPE}/posts.db')
+Session = sessionmaker(bind=engine)
 
 
 def extract(URL_1, URL_2):
@@ -32,6 +39,28 @@ def transform(people, posts):
 
 
 def load(posts):
+    Base.metadata.create_all(engine)
+    session = Session()
+    try:
+        session.query(Post).delete()
+        for post in posts:
+            new_post = Post(
+                id=post['id'],
+                title=post['title'],
+                body=post['body'],
+                author=post['author'],
+                extracted_time=post['extracted_time']
+            )
+            session.add(new_post)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f'Ошибка: {e}')
+    finally:
+        session.close()
+
+
+def load_without_alchemy(posts):
     conn = sqlite3.connect(DATA_BASE)
     cursor = conn.cursor()
     cursor.execute('''
@@ -67,7 +96,7 @@ if __name__ == '__main__':
     try:
         cursor.execute("SELECT * FROM posts LIMIT 1")
         row = cursor.fetchone()
-        if (datetime.now() - datetime.strptime(row[4], DATE_FORMAT)).total_seconds() >= 30:
+        if (datetime.now() - datetime.strptime(row[4], DATE_FORMAT)).total_seconds() >= 2:
             run_etl()
             print('Обновлено')
     except sqlite3.OperationalError:
