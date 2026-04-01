@@ -73,5 +73,3 @@ if __name__ == '__main__':
     except sqlite3.OperationalError:
         run_etl()
         print('Записано')
-    else:
-        print('Слишком частые обновления бд')
