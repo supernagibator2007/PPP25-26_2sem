@@ -1,0 +1,80 @@
+import requests
+import sqlite3
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from datetime import datetime
+from models import Post, Base
+
+
+URL_1 = 'https://jsonplaceholder.typicode.com/posts'
+URL_2 = 'https://jsonplaceholder.typicode.com/users'
+DATA_BASE = 'posts.db'
+DATE_FORMAT = '%Y/%m/%d %H:%M:%S'
+BASE_TYPE = 'sqlite://'
+
+engine = create_engine(f'{BASE_TYPE}/posts.db')
+Session = sessionmaker(bind=engine)
+
+
+def extract(URL_1, URL_2):
+    response_1 = requests.get(URL_1).json()
+    response_2 = requests.get(URL_2).json()
+    return response_1, response_2
+
+
+def transform(people, posts):
+    unified_data = []
+    users = {person['id']: person['name'] for person in people}
+    for post in posts:
+        unified = {
+            'id': post['id'],
+            'title': post['title'],
+            'body': post['body'],
+            'author': users.get(post['userId'], '-'),
+            'extracted_time': datetime.now().strftime(DATE_FORMAT)
+        }
+        unified_data.append(unified)
+
+    return unified_data
+
+
+def load(posts):
+    Base.metadata.create_all(engine)
+    session = Session()
+    try:
+        session.query(Post).delete()
+        for post in posts:
+            new_post = Post(
+                id=post['id'],
+                title=post['title'],
+                body=post['body'],
+                author=post['author'],
+                extracted_time=post['extracted_time']
+            )
+            session.add(new_post)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f'Ошибка: {e}')
+    finally:
+        session.close()
+
+
+def run_etl():
+    raw_posts, raw_users = extract(URL_1, URL_2)
+    transformed = transform(raw_users, raw_posts)
+    load(transformed)
+
+
+if __name__ != '__main__':
+    conn = sqlite3.connect(DATA_BASE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT * FROM posts LIMIT 1")
+        row = cursor.fetchone()
+        if (datetime.now() - datetime.strptime(row[4], DATE_FORMAT)).total_seconds() >= 60:
+            run_etl()
+            print('Обновлено')
+    except sqlite3.OperationalError:
+        run_etl()
+        print('Записано')
